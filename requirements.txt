@@ -1,4 +1,6 @@
 pandas>=2.0
 requests>=2.31
-xlrd>=2.0       # lecture des dictionnaires .xls (docs/sources)
+xlrd>=2.0          # lecture des dictionnaires .xls (docs/sources)
+streamlit>=1.31
+altair>=5.0
 # Ollama (https://ollama.com) en local pour src/step2b_llm.py : `ollama pull qwen2.5`

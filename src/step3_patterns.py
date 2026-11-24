@@ -66,10 +66,11 @@ def md_table(df: pd.DataFrame, n: int | None = None) -> str:
     return "\n".join(lines)
 
 
-def p1_medico_social(pc: pd.DataFrame) -> tuple[pd.DataFrame, str]:
-    # Signaux « projet médico-social » (projet, pas demandeur). RES_* n'existent que depuis mai 2022 ;
-    # avant, le code RESIDENCE porte l'information. Chambres : hors hébergement hôtelier/touristique.
-    sig = pd.DataFrame({
+def medsoc_signaux(pc: pd.DataFrame) -> pd.DataFrame:
+    """Signaux « projet médico-social » (projet, pas demandeur), un booléen par signal.
+    RES_* n'existent que depuis mai 2022 ; avant, le code RESIDENCE porte l'information.
+    Chambres : hors hébergement hôtelier/touristique et résidences étudiantes."""
+    return pd.DataFrame({
         "résidence personnes âgées": flag(pc["RES_PERS_AGEES"]) | pc["RESIDENCE"].eq("1"),
         "résidence handicapés": flag(pc["RES_HANDICAPES"]) | pc["RESIDENCE"].eq("6"),
         "résidence sociale": flag(pc["RES_SOCIALE"]) | pc["RESIDENCE"].isin(["4", "5"])
@@ -79,6 +80,10 @@ def p1_medico_social(pc: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         "chambres (hors hôtel)": (pc["NB_CHAMBRES"] > 0) & (pc["SURF_HEB_CREEE"] <= 0)
                                  & ~flag(pc["RES_TOURISME"]) & ~pc["RESIDENCE"].isin(["2", "3"]),
     })
+
+
+def p1_medico_social(pc: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    sig = medsoc_signaux(pc)
     m = sig.any(axis=1)
     proj = pc[m].copy()
     proj["SIGNAUX"] = sig[m].apply(lambda r: " ; ".join(r.index[r]), axis=1)

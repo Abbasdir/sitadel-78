@@ -59,3 +59,18 @@ python src/step3_patterns.py        # CSV dans data/processed/patterns/, résum�
 5. étude de cas : Fondation Mallet.
 
 Noms de communes : `data/ref/communes_78.csv` (geo.api.gouv.fr, une requête).
+
+## Étape 4 — CSV final et tableau de bord
+
+```bash
+python src/step4_export.py          # data/final/sitadel_78_pc_personnes_morales.csv (+ dictionnaire_colonnes.md)
+streamlit run app/dashboard.py      # tableau de bord local, aucun appel réseau
+```
+
+CSV final : 1 ligne par permis (7 092), famille du demandeur, règle, signal, indicateurs, et trois liens :
+`SOURCE_PERMIS_URL` (l'enregistrement Sitadel exact, via l'API publique DiDo filtrée sur `NUM_DAU`),
+`SOURCE_JEU_DE_DONNEES` (page du fichier SDES) et `SIREN_URL` (fiche publique du demandeur).
+
+Tableau de bord : filtres (famille, années, état, commune, confiance, recherche), vue d'ensemble, portefeuille
+sans ouverture de chantier, projets médico-sociaux, récurrents, extensions, cas Fondation Mallet, données
+filtrées téléchargeables, méthode et limites.
