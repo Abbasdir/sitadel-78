@@ -1,0 +1,8 @@
+signal,association_ess,bailleur_social,collectivite_public,entreprise_autre,medico_social_sante,non_determine,promoteur_prive,sci_fonciere,total
+chambres (hors hôtel),2,3,2,4,4,0,7,3,25
+résidence handicapés,0,1,0,0,3,0,0,0,4
+résidence personnes âgées,0,3,0,2,0,0,25,5,35
+résidence sociale,0,13,9,1,1,1,4,0,29
+service public : action sociale,10,8,92,11,55,3,27,25,231
+service public : santé,4,8,41,7,72,2,15,27,176
+total,16,36,144,25,135,6,78,60,500

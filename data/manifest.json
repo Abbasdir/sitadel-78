@@ -1,0 +1,48 @@
+{
+  "telecharge_le": "2026-11-24T11:39:26+00:00",
+  "departement": "78",
+  "fichiers": {
+    "logements": {
+      "fichier": "data/raw/sitadel_logements_78_2026-10.csv",
+      "url_api": "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/8b35affb-55fc-4c1f-915b-7750f974446a/csv?millesime=2026-10&withColumnName=true&withColumnDescription=false&DEP_CODE=eq:78",
+      "page_catalogue": "https://www.statistiques.developpement-durable.gouv.fr/catalogue?page=datafile&datafileRid=8b35affb-55fc-4c1f-915b-7750f974446a&datafileMillesime=2026-10",
+      "millesime": "2026-10",
+      "sha256": "334961c531c2d36d1c534f3cc84abf726b5bd0c36f1d27ec35c4265676c0d01f"
+    },
+    "locaux": {
+      "fichier": "data/raw/sitadel_locaux_78_2026-10.csv",
+      "url_api": "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles/f8f0700f-806c-40a7-83b1-f21cf507e7c4/csv?millesime=2026-10&withColumnName=true&withColumnDescription=false&DEP_CODE=eq:78",
+      "page_catalogue": "https://www.statistiques.developpement-durable.gouv.fr/catalogue?page=datafile&datafileRid=f8f0700f-806c-40a7-83b1-f21cf507e7c4&datafileMillesime=2026-10",
+      "millesime": "2026-10",
+      "sha256": "222aa270f26b059a83589e490f4840164a0d70796c87cc1c23c7d16f7b94412a"
+    }
+  },
+  "documentation": {
+    "note_presentation_sitadel.pdf": "https://data.statistiques.developpement-durable.gouv.fr/dido/api/files/52ce326b-45b2-42ce-a2e7-4a60554ef559",
+    "dictionnaire_logements.xls": "https://data.statistiques.developpement-durable.gouv.fr/dido/api/files/ab799b04-0b03-4f96-949c-eb23c478a8e8",
+    "dictionnaire_locaux.xls": "https://data.statistiques.developpement-durable.gouv.fr/dido/api/files/38ca96c1-c8af-42db-bba1-13cd4bc713f3"
+  },
+  "stats": {
+    "lignes_78_total": 28092,
+    "par_fichier": {
+      "logements": 20205,
+      "locaux": 7887
+    },
+    "par_type_dau": {
+      "PC": 24670,
+      "DP": 3397,
+      "PA": 25
+    },
+    "personnes_morales_toutes_dau": 9572,
+    "pc_personnes_morales": 7608,
+    "pm_sans_denomination": 0,
+    "pm_sans_siren": 0,
+    "pc_presents_dans_les_deux_fichiers": 516,
+    "sortie": {
+      "fichier": "data/processed/pc_78_personnes_morales.csv",
+      "lignes": 7608,
+      "permis_distincts": 7092,
+      "siren_distincts": 3957
+    }
+  }
+}

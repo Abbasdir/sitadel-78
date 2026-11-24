@@ -1,0 +1,9 @@
+# Données brutes : régénérables via src/step1_download.py (cf. data/manifest.json)
+data/raw/
+__pycache__/
+.venv/
+.env
+# Intermédiaires contenant les dénominations non masquées (régénérables)
+data/cache/
+data/processed/pc_78_personnes_morales.csv
+data/processed/siren_enrichi.csv
