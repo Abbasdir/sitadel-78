@@ -32,6 +32,8 @@ python -m streamlit run app/dashboard.py      # http://localhost:8501
 | `docs/step3_resume.md` | résumé chiffré des analyses |
 | `data/processed/revue_llm.csv` | toutes les réponses de l'agent, leur contrôle et les verdicts humains |
 | `docs/evaluation.md` | taux d'erreur et d'abstention mesurés sur les verdicts humains |
+| `docs/note.pdf` | **note de rendu** (2 pages) : angle, résultats, limites, suite |
+| `docs/captures/` | captures du tableau de bord |
 
 ## 2. Installation
 
