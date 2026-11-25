@@ -1,6 +1,7 @@
 pandas>=2.0
 requests>=2.31
-xlrd>=2.0          # lecture des dictionnaires .xls (docs/sources)
-streamlit>=1.31
+beautifulsoup4>=4.12  # lecture HTML des URL connues sans clé de recherche
+streamlit>=1.31       # tableau de bord
 altair>=5.0
-# Ollama (https://ollama.com) en local pour src/step2b_llm.py : `ollama pull qwen2.5`
+# Gemini + Tavily : API REST via requests, sans SDK.
+# Installation du paquet et de la commande `sitadel` : pip install -e .

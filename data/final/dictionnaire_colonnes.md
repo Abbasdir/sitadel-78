@@ -21,8 +21,19 @@ Source : SDES Sitadel, millésime 2026-10, Yvelines, permis de construire dépos
 | `FAMILLE` | famille du demandeur |
 | `SOUS_FAMILLE` | précision |
 | `CONFIANCE` | haute / moyenne / basse |
-| `REGLE_APPLIQUEE` | règle de classement déclenchée (ou « llm ») |
+| `REGLE_APPLIQUEE` | règle déclenchée ou llm_valide après contrôle manuel |
 | `SIGNAL` | signal public qui fonde la décision |
+| `REGLE_INITIALE` | décision des règles avant une éventuelle validation LLM |
+| `ORIGINE_CLASSEMENT` | Règles / LLM validé manuellement / Non déterminé |
+| `PROPOSITION_LLM` | famille proposée par le modèle, distincte du classement retenu |
+| `STATUT_LLM` | non_soumis / ancienne_version / abstention / rejetee / a_verifier / validee / refusee / validation_incomplete / donnees_modifiees |
+| `JUSTIFICATION_LLM` | justification du modèle, à vérifier |
+| `CONTROLE_LLM` | résultat du contrôle technique ou manuel |
+| `PREUVES_LLM` | champs et valeurs cités par le modèle (JSON) |
+| `MODELE_LLM` | nom exact du modèle utilisé |
+| `SOURCE_VALIDATION_LLM` | source publique du contrôle manuel |
+| `SOURCES_WEB_LLM` | extraits d'activité et liens web fournis au modèle (JSON, identité vérifiée par SIREN) |
+| `SOURCE_ACTIVITE_LLM` | page d'activité citée par le modèle, si présente |
 | `FAMILLE_CIBLE` | bailleur social, association/ESS ou médico-social |
 | `NATURE_PROJET` | nouvelle construction / travaux sur existant |
 | `EXTENSION` | indicateur d'extension |

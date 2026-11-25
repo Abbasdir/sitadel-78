@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sitadel"
+version = "0.3.0"
+description = "Permis de construire Sitadel (Yvelines) : qualification des demandeurs personnes morales"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "streamlit>=1.31",
+    "altair>=5.0",
+]
+
+[project.scripts]
+sitadel = "sitadel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

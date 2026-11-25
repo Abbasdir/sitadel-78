@@ -1,4 +1,4 @@
-"""Étape 2b — Classement de chaque demandeur (SIREN) en famille, par règles explicables.
+"""Règles métier déterministes : famille de chaque demandeur (SIREN), par règles explicables.
 
 Entrées :
   data/processed/pc_78_personnes_morales.csv  (étape 1, Sitadel)
@@ -17,23 +17,17 @@ Ordre de priorité (le premier signal fort gagne) :
   5. promoteur privé        APE promotion immobilière / marchand de biens, SCCV
   6. SCI / foncière         sociétés civiles immobilières, location immobilière
   7. entreprise (autre)     société commerciale dont l'activité n'est pas immobilière -> locaux pour son activité
-  8. non déterminé          holdings, sièges sociaux, SIREN introuvable… -> candidats pour l'étape LLM
+  8. non déterminé          holdings, sièges sociaux, SIREN introuvable… -> candidats pour l'agent
 """
 from __future__ import annotations
 
 import json
 import re
-import sys
-from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-P = ROOT / "data" / "processed"
-REF = ROOT / "data" / "ref"
-
-FAMILLES = ["bailleur_social", "medico_social_sante", "collectivite_public", "association_ess",
-            "promoteur_prive", "sci_fonciere", "entreprise_autre", "non_determine"]
+from .config import APE_GENERIQUES, CJ_INSEE, DEMANDEURS, NAF_INSEE, PERMIS_CLASSES, PERMIS_PM, SIREN_ENRICHI, SIREN_URL
+from .review import COLONNES_LLM
 
 # --- Signaux -----------------------------------------------------------------------------
 CJ_HLM = {"5546", "5646", "5547", "5647"}               # SA HLM, coop HLM
@@ -66,7 +60,7 @@ CJ_SCI = {"6540", "6539", "6521", "6542", "6543", "6599"}
 APE_FONCIER = {"68.20A": "location de logements", "68.20B": "location de terrains/biens",
                "68.32A": "administration d'immeubles", "68.31Z": "agence immobilière",
                "66.30Z": "gestion de fonds", "64.30Z": "fonds de placement"}
-APE_HOLDING = {"70.10Z", "64.20Z", "70.22Z", "82.99Z"}  # trop génériques pour conclure seuls
+APE_HOLDING = APE_GENERIQUES  # trop génériques pour conclure seuls
 RE_PROMO = re.compile(r"\b(SCCV|PROMOTION|PROMOGIM|IMMOBILIER|NEXITY|KAUFMAN|COGEDIM|BOUYGUES IMMO|"
                       r"VINCI IMMO|EIFFAGE IMMO|ICADE|BNP PARIBAS IMMO|LINKCITY|PITCH|EDELIS|"
                       r"QUARTUS|SOGEPROM|OGIC|EMERIGE|GREEN CITY)\b", re.I)
@@ -214,79 +208,78 @@ def classify(r: pd.Series) -> dict:
     return out("non_determine", "signal insuffisant", "-", "AUCUN", f"CJ {cj} / APE {ape}")
 
 
-def main() -> int:
-    pc = pd.read_csv(P / "pc_78_personnes_morales.csv", dtype=str)
-    enr = pd.read_csv(P / "siren_enrichi.csv", dtype=str)
+# --- Construction des tables -----------------------------------------------------------------------
+
+COLONNES_DEMANDEURS = [
+    "SIREN_DEM", "DENOM", "CJ", "CJ_LIBELLE", "APE", "APE_LIBELLE", "n_pc", "famille", "sous_famille",
+    "confiance", "regle_appliquee", "signal", "trouve", "etat_administratif", "categorie_entreprise",
+    "tranche_effectif_salarie", "liste_idcc", "liste_finess_juridique", "est_ess", "est_association",
+    "activite_principale", "nature_juridique", "cj_source", "denom_masquee", "regle_initiale",
+    "SOURCE_SIREN_URL"] + COLONNES_LLM
+
+
+def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Permis (étape ingest), SIREN enrichis (étape enrich), nomenclatures CJ et NAF."""
+    pc = pd.read_csv(PERMIS_PM, dtype=str)
+    enr = pd.read_csv(SIREN_ENRICHI, dtype=str)
     for c in ("trouve", "est_association", "est_ess", "est_siae", "est_finess"):
         enr[c] = enr[c].map({"True": True, "False": False})
-    cj = pd.read_csv(REF / "cj_insee.csv", dtype=str)
-    naf = pd.read_csv(REF / "naf_insee.csv", dtype=str)
+    return pc, enr, pd.read_csv(CJ_INSEE, dtype=str), pd.read_csv(NAF_INSEE, dtype=str)
 
-    # Un demandeur = un SIREN. CJ/APE/dénomination Sitadel (valeur au moment du permis, la plus récente)
-    pc["_d"] = pd.to_datetime(pc["DATE_REELLE_AUTORISATION"], errors="coerce")
+
+def classify_demandeurs(pc: pd.DataFrame, enr: pd.DataFrame, cj: pd.DataFrame, naf: pd.DataFrame) -> pd.DataFrame:
+    """Un demandeur = un SIREN, classé par les règles puis masqué si sa dénomination est à risque."""
+    # CJ/APE/dénomination Sitadel : valeur au moment du permis, la plus récente
+    pc = pc.assign(_d=pd.to_datetime(pc["DATE_REELLE_AUTORISATION"], errors="coerce"))
     last = (pc.sort_values("_d").groupby("SIREN_DEM")
             .agg(DENOM=("DENOM_DEM", "last"), CJ=("CJ_DEM", "last"), APE=("APE_DEM", "last"),
                  n_pc=("NUM_DAU", "nunique")).reset_index())
     d = last.merge(enr, left_on="SIREN_DEM", right_on="siren", how="left")
-    # Sitadel peut avoir CJ/APE vides : compléter par Sirène actuel (traçé dans 'cj_source')
+    # Sitadel peut avoir CJ/APE vides : compléter par Sirène actuel (tracé dans 'cj_source')
     d["cj_source"] = d["CJ"].notna().map({True: "sitadel", False: "sirene"})
     d["CJ"] = d["CJ"].fillna(d["nature_juridique"])
     d["APE"] = d["APE"].fillna(d["activite_principale"])
-    d = d.merge(cj.rename(columns={"CJ": "CJ"}), on="CJ", how="left").merge(naf, on="APE", how="left")
+    d = d.merge(cj, on="CJ", how="left").merge(naf, on="APE", how="left")
 
     res = d.apply(classify, axis=1, result_type="expand")
     d = pd.concat([d, res], axis=1)
 
-    # Arbitrages LLM local (src/step2b_llm.py, Ollama), s'ils existent : uniquement les non déterminés.
-    # Toute sortie LLM est marquée regle_appliquee="llm" et confiance="basse".
-    llm_cache = ROOT / "data" / "cache" / "ollama_decisions.jsonl"
     d["regle_initiale"] = d["regle_appliquee"]
-    if llm_cache.exists():
-        llm = {}
-        for line in llm_cache.read_text(encoding="utf-8").splitlines():
-            r = json.loads(line)
-            if r.get("famille") in FAMILLES and r["famille"] != "non_determine":
-                llm[r["siren"]] = r
-        m = d["SIREN_DEM"].isin(llm) & d["famille"].eq("non_determine")
-        for i in d.index[m]:
-            r = llm[d.at[i, "SIREN_DEM"]]
-            d.loc[i, ["famille", "sous_famille", "confiance", "regle_appliquee", "signal"]] = [
-                r["famille"], f"proposé par LLM ({r['modele']})", "basse", "llm",
-                f"[règles: {d.at[i, 'signal']}] {r['justification']}"]
-    d["SOURCE_SIREN_URL"] = "https://annuaire-entreprises.data.gouv.fr/entreprise/" + d["SIREN_DEM"]
+    d["SOURCE_SIREN_URL"] = SIREN_URL + d["SIREN_DEM"]
     # Masquage des dénominations à risque (après classement : les règles NOM_* ont vu le vrai nom)
     mk = d.apply(lambda x: masquer(x["DENOM"], x["CJ"]), axis=1, result_type="expand")
     d["DENOM"], d["denom_masquee"] = mk[0], mk[1]
     d.loc[d["denom_masquee"] & d["signal"].str.contains("dénomination", na=False), "signal"] = "dénomination (masquée)"
-    cols = ["SIREN_DEM", "DENOM", "CJ", "CJ_LIBELLE", "APE", "APE_LIBELLE", "n_pc", "famille", "sous_famille",
-            "confiance", "regle_appliquee", "signal", "trouve", "etat_administratif", "categorie_entreprise",
-            "tranche_effectif_salarie", "liste_idcc", "liste_finess_juridique", "est_ess", "est_association",
-            "activite_principale", "nature_juridique", "cj_source", "denom_masquee", "regle_initiale",
-            "SOURCE_SIREN_URL"]
-    d[cols].sort_values(["famille", "n_pc"], ascending=[True, False]).to_csv(
-        P / "demandeurs_classes.csv", index=False, encoding="utf-8")
+    return d
 
-    # Permis : 1 ligne par NUM_DAU. Un permis mixte figure dans les deux fichiers : on fusionne les deux
-    # lignes champ par champ (1re valeur non vide, logements d'abord) pour garder aussi les champs propres
-    # au fichier locaux (TYPE_SERVICE_PUBLIC, NB_CHAMBRES, surfaces par destination).
-    pc = pc.sort_values("SOURCE_FICHIER").drop(columns="_d")
+
+def merge_permits(pc: pd.DataFrame, d: pd.DataFrame) -> pd.DataFrame:
+    """1 ligne par NUM_DAU, avec la famille de son demandeur.
+
+    Un permis mixte figure dans les deux fichiers : on fusionne les deux lignes champ par champ
+    (1re valeur non vide, logements d'abord) pour garder aussi les champs propres au fichier locaux
+    (TYPE_SERVICE_PUBLIC, NB_CHAMBRES, surfaces par destination).
+    """
+    pc = pc.sort_values("SOURCE_FICHIER")
     both = pc["DANS_LOGEMENTS"].eq("True") & pc["DANS_LOCAUX"].eq("True")
     pc["SOURCE_URL_LOCAUX"] = pc["SOURCE_URL"].where(pc["SOURCE_FICHIER"].eq("locaux"))
     pc.loc[both, "SOURCE_FICHIER"] = "logements+locaux"
-    pc = pc.copy().groupby("NUM_DAU", sort=False, as_index=False).first()
-    pc = pc.drop(columns=["DENOM_DEM"]).merge(
-        d[["SIREN_DEM", "DENOM", "famille", "sous_famille", "confiance", "regle_appliquee", "signal"]]
+    pc = pc.groupby("NUM_DAU", sort=False).first().copy().reset_index()
+    return pc.drop(columns=["DENOM_DEM"]).merge(
+        d[["SIREN_DEM", "DENOM", "famille", "sous_famille", "confiance", "regle_appliquee", "signal",
+           "regle_initiale"] + COLONNES_LLM]
         .rename(columns={"DENOM": "DENOM_DEM"}), on="SIREN_DEM", how="left")
-    pc.to_csv(P / "pc_78_classes.csv", index=False, encoding="utf-8")
-
-    print("== Demandeurs (SIREN) par famille ==")
-    print(d.groupby(["famille", "confiance"]).size().unstack(fill_value=0).to_string())
-    print("\n== Permis par famille ==")
-    print(pc["famille"].value_counts().to_string())
-    print("\n== Règles déclenchées ==")
-    print(d["regle_appliquee"].value_counts().to_string())
-    return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def write_outputs(d: pd.DataFrame, permits: pd.DataFrame) -> None:
+    d[COLONNES_DEMANDEURS].sort_values(["famille", "n_pc"], ascending=[True, False]).to_csv(
+        DEMANDEURS, index=False, encoding="utf-8")
+    permits.to_csv(PERMIS_CLASSES, index=False, encoding="utf-8")
+
+
+def summary(d: pd.DataFrame, permits: pd.DataFrame) -> str:
+    return "\n".join([
+        "== Demandeurs (SIREN) par famille ==",
+        d.groupby(["famille", "confiance"]).size().unstack(fill_value=0).to_string(),
+        "\n== Permis par famille ==", permits["famille"].value_counts().to_string(),
+        "\n== Règles déclenchées ==", d["regle_appliquee"].value_counts().to_string()])

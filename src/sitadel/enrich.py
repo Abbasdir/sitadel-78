@@ -1,4 +1,4 @@
-"""Étape 2a — Enrichissement des SIREN demandeurs via l'API publique Recherche d'entreprises.
+"""Enrichissement des SIREN demandeurs via l'API publique Recherche d'entreprises.
 
 API : https://recherche-entreprises.api.gouv.fr (DINUM, données Sirène/INSEE + RNE + labels publics)
 Limite publique : 7 req/s. On reste à ~4 req/s, avec cache local (reprise possible).
@@ -7,22 +7,17 @@ Données personnelles : la réponse contient des noms de dirigeants personnes ph
 On ne conserve QUE des champs décrivant la personne morale (liste blanche KEEP ci-dessous) :
 aucun nom de personne physique n'est écrit sur disque.
 
-Usage : python src/step2a_enrich_siren.py
+Usage : sitadel enrich
 """
 from __future__ import annotations
 
 import json
-import sys
 import time
-from pathlib import Path
 
 import pandas as pd
 import requests
 
-ROOT = Path(__file__).resolve().parents[1]
-IN = ROOT / "data" / "processed" / "pc_78_personnes_morales.csv"
-CACHE = ROOT / "data" / "cache" / "recherche_entreprises.jsonl"
-OUT = ROOT / "data" / "processed" / "siren_enrichi.csv"
+from .config import CACHE_SIRENE as CACHE, PERMIS_PM as IN, SIREN_ENRICHI as OUT, SIREN_URL
 API = "https://recherche-entreprises.api.gouv.fr/search"
 UA = {"User-Agent": "sitadel-78-etude/0.1 (analyse open data)"}
 DELAY = 0.25
@@ -58,7 +53,8 @@ def fetch(siren: str) -> dict:
     raise RuntimeError(f"429 persistant pour {siren}")
 
 
-def main() -> int:
+def run() -> dict:
+    """Interroge les SIREN absents du cache (reprise possible) ; renvoie le décompte trouvés / non trouvés."""
     sirens = sorted(pd.read_csv(IN, dtype=str)["SIREN_DEM"].dropna().unique())
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     done = {}
@@ -85,11 +81,6 @@ def main() -> int:
     for col in ("liste_idcc", "liste_finess_juridique", "collectivite_territoriale"):
         if col in df:
             df[col] = df[col].apply(lambda v: json.dumps(v, ensure_ascii=False) if v not in (None, [], {}) and v == v else None)
-    df["SOURCE_SIREN_URL"] = "https://annuaire-entreprises.data.gouv.fr/entreprise/" + df["siren"]
+    df["SOURCE_SIREN_URL"] = SIREN_URL + df["siren"]
     df.to_csv(OUT, index=False, encoding="utf-8")
-    print("trouvés:", df["trouve"].value_counts(dropna=False).to_dict())
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    return df["trouve"].value_counts(dropna=False).to_dict()

@@ -1,4 +1,4 @@
-"""Étape 3 — Patterns sur les permis de construire des personnes morales (Yvelines).
+"""Calcul des indicateurs (patterns) sur les permis de construire des personnes morales (Yvelines).
 
 Entrées : data/processed/pc_78_classes.csv (1 ligne par permis, famille du demandeur)
           data/ref/communes_78.csv (code INSEE -> nom, geo.api.gouv.fr, 1 requête)
@@ -11,21 +11,15 @@ Sorties : data/processed/patterns/*.csv  +  docs/step3_resume.md
   5. cas_fondation_mallet.csv         tous les permis de la Fondation Mallet
 
 Chaque ligne garde NUM_DAU + SOURCE_URL (fichier Sitadel) + SIREN_URL (fiche entreprise publique).
-Usage : python src/step3_patterns.py
+Usage : sitadel analyze
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-P = ROOT / "data" / "processed"
-OUT = P / "patterns"
-MD = ROOT / "docs" / "step3_resume.md"
+from .config import CIBLES, COMMUNES, DOCS, PATTERNS as OUT, PERMIS_CLASSES
 
-CIBLES = ["bailleur_social", "association_ess", "medico_social_sante"]
+MD = DOCS / "step3_resume.md"
 NUMS = ["NB_LGT_TOT_CREES", "NB_LGT_PRET_LOC_SOCIAL", "SURF_HAB_CREEE", "SURF_LOC_CREEE", "NB_CHAMBRES",
         "SURF_COM_CREEE", "SURF_BUR_CREEE", "SURF_IND_CREEE", "SURF_ENT_CREEE", "SURF_AGR_CREEE",
         "SURF_PUB_CREEE", "SURF_HEB_CREEE", "SURF_LOC_AVANT"]
@@ -38,8 +32,8 @@ LIENS = ["NUM_DAU", "SOURCE_URL", "SOURCE_URL_LOCAUX", "SIREN_DEM", "SIREN_URL"]
 
 
 def load() -> pd.DataFrame:
-    pc = pd.read_csv(P / "pc_78_classes.csv", dtype=str)
-    com = pd.read_csv(ROOT / "data" / "ref" / "communes_78.csv", dtype=str)
+    pc = pd.read_csv(PERMIS_CLASSES, dtype=str)
+    com = pd.read_csv(COMMUNES, dtype=str)
     pc = pc.merge(com.rename(columns={"code": "COMM", "nom": "COMMUNE"}), on="COMM", how="left")
     pc["COMMUNE"] = pc["COMMUNE"].fillna("code " + pc["COMM"] + " (commune fusionnée)")
     for c in NUMS:
@@ -209,7 +203,8 @@ def p5_mallet(pc: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     return fm, txt
 
 
-def main() -> int:
+def run() -> str:
+    """Écrit les CSV de patterns et le résumé Markdown ; renvoie ce résumé."""
     OUT.mkdir(parents=True, exist_ok=True)
     pc = load()
     sections = [("1. Projets médico-sociaux × famille du porteur", p1_medico_social),
@@ -223,10 +218,6 @@ def main() -> int:
     for title, fn in sections:
         _, txt = fn(pc)
         md.append(f"## {title}\n\n{txt}\n")
-    MD.write_text("\n".join(md), encoding="utf-8")
-    print("\n".join(md))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    text = "\n".join(md)
+    MD.write_text(text, encoding="utf-8")
+    return text

@@ -5,6 +5,7 @@ Lit uniquement des fichiers produits par le pipeline (data/final, data/processed
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import altair as alt
@@ -14,6 +15,15 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 FINAL = ROOT / "data" / "final" / "sitadel_78_pc_personnes_morales.csv"
 PAT = ROOT / "data" / "processed" / "patterns"
+REVUE = ROOT / "data" / "processed" / "revue_llm.csv"
+REVUE_WEB = ROOT / "data" / "processed" / "revue_web.csv"
+STATUTS_LLM = {
+    "non_soumis": "Pas encore soumis", "ancienne_version": "Ancien prompt : à réévaluer",
+    "abstention": "Le modèle s'abstient", "rejetee": "Preuves insuffisantes ou réponse invalide",
+    "a_verifier": "Proposition à vérifier", "validee": "Validation manuelle avec source",
+    "refusee": "Rejet manuel", "validation_incomplete": "Validation incomplète",
+    "donnees_modifiees": "Données modifiées : à réévaluer",
+}
 
 # Couleur fixée par famille (l'entité garde sa couleur quel que soit le filtre). Ordre catégoriel validé ;
 # « non déterminé » en gris neutre.
@@ -35,6 +45,8 @@ LINKS = {
     "SOURCE_PERMIS_URL": st.column_config.LinkColumn("Permis (Sitadel)", display_text="enregistrement"),
     "SIREN_URL": st.column_config.LinkColumn("Demandeur", display_text="fiche SIREN"),
     "SOURCE_URL": st.column_config.LinkColumn("Fichier Sitadel", display_text="jeu de données"),
+    "SOURCE_VALIDATION_LLM": st.column_config.LinkColumn("Source du contrôle", display_text="source publique"),
+    "SOURCE_ACTIVITE_LLM": st.column_config.LinkColumn("Activité citée", display_text="page publique"),
     "ANNEE": st.column_config.NumberColumn("Année", format="%d"),
 }
 
@@ -42,7 +54,7 @@ st.set_page_config(page_title="Sitadel 78 — personnes morales", layout="wide")
 
 
 @st.cache_data
-def load() -> pd.DataFrame:
+def load(file_stamp: int) -> pd.DataFrame:
     df = pd.read_csv(FINAL, dtype={"NUM_DAU": str, "SIREN_DEM": str, "COMM": str, "CJ": str},
                      encoding="utf-8-sig", parse_dates=["DATE_AUTORISATION", "DATE_OUVERTURE_CHANTIER"])
     df["ANNEE"] = df["DATE_AUTORISATION"].dt.year
@@ -53,8 +65,12 @@ def load() -> pd.DataFrame:
 
 
 @st.cache_data
-def pattern(name: str) -> pd.DataFrame:
+def cached_pattern(name: str, file_stamp: int) -> pd.DataFrame:
     return pd.read_csv(PAT / name, dtype={"NUM_DAU": str, "SIREN_DEM": str})
+
+
+def pattern(name: str) -> pd.DataFrame:
+    return cached_pattern(name, (PAT / name).stat().st_mtime_ns)
 
 
 def bar_tooltip_chart(data: pd.DataFrame, y: str, x: str, color: bool, title: str, height: int = 280):
@@ -70,7 +86,7 @@ def bar_tooltip_chart(data: pd.DataFrame, y: str, x: str, color: bool, title: st
     return base.encode(**enc).properties(height=height)
 
 
-df = load()
+df = load(FINAL.stat().st_mtime_ns)
 
 # ---------------------------------------------------------------- filtres
 st.title("Permis de construire des personnes morales — Yvelines")
@@ -90,14 +106,17 @@ with st.sidebar:
     communes = st.multiselect("Communes", sorted(df["COMMUNE"].dropna().unique()))
     conf = st.multiselect("Confiance du classement", ["haute", "moyenne", "basse", "-"],
                           default=["haute", "moyenne", "basse", "-"])
+    origines = st.multiselect("Origine du classement", ["Règles", "LLM validé manuellement", "Non déterminé"],
+                             default=["Règles", "LLM validé manuellement", "Non déterminé"])
     q = st.text_input("Recherche (dénomination ou SIREN)")
 
 f = df[df["Famille"].isin(fams) & df["ANNEE"].between(*annees) & df["ETAT"].isin(etats)
-       & df["CONFIANCE"].fillna("-").isin(conf)]
+       & df["CONFIANCE"].fillna("-").isin(conf) & df["ORIGINE_CLASSEMENT"].isin(origines)]
 if communes:
     f = f[f["COMMUNE"].isin(communes)]
 if q:
-    f = f[f["DENOMINATION"].str.contains(q, case=False, na=False) | f["SIREN_DEM"].str.contains(q, na=False)]
+    f = f[f["DENOMINATION"].str.contains(q, case=False, na=False, regex=False)
+          | f["SIREN_DEM"].str.contains(q, na=False, regex=False)]
 
 k = st.columns(5)
 k[0].metric("Permis", f"{len(f):,}".replace(",", " "))
@@ -107,7 +126,7 @@ k[3].metric("dont locatifs sociaux", f"{int(f['DONT_LOCATIFS_SOCIAUX'].sum()):,}
 k[4].metric("m² de locaux créés", f"{int(f['SURF_LOCAUX_CREEE_M2'].sum()):,}".replace(",", " "))
 
 tabs = st.tabs(["Vue d'ensemble", "Portefeuille sans chantier", "Projets médico-sociaux", "Constructeurs récurrents",
-                "Extensions", "Cas : Fondation Mallet", "Données", "Méthode & limites"])
+                "Extensions", "Cas : Fondation Mallet", "Données", "Contrôle du LLM", "Méthode & limites"])
 
 # ---------------------------------------------------------------- vue d'ensemble
 with tabs[0]:
@@ -152,9 +171,7 @@ with tabs[1]:
             "de chantier ne remontent jamais (note SDES) : c'est une liste de projets à vérifier, pas de projets bloqués.")
     p = pattern("portefeuille_sans_doc.csv")
     p["famille"] = p["famille"].map(LIB)
-    p = p[p["famille"].isin(fams)]
-    if communes:
-        p = p[p["COMMUNE"].isin(communes)]
+    p = p[p["NUM_DAU"].isin(f["NUM_DAU"])]
     st.dataframe(p.drop(columns=["SOURCE_URL_LOCAUX"]), hide_index=True, use_container_width=True,
                  column_config={"SOURCE_URL": LINKS["SOURCE_URL"], "SIREN_URL": LINKS["SIREN_URL"]})
 
@@ -188,9 +205,8 @@ with tabs[3]:
     st.subheader("Demandeurs récurrents (≥ 3 permis sur la période)")
     r = pattern("constructeurs_recurrents.csv")
     r["famille"] = r["famille"].map(LIB)
-    r = r[r["famille"].isin(fams)]
-    if q:
-        r = r[r["DENOM_DEM"].str.contains(q, case=False, na=False)]
+    r = r[r["SIREN_DEM"].isin(f["SIREN_DEM"])]
+    st.caption("Demandeurs présents dans la sélection ; les volumes de récurrence couvrent toute la période.")
     st.dataframe(r, hide_index=True, use_container_width=True, column_config={"SIREN_URL": LINKS["SIREN_URL"]})
 
 # ---------------------------------------------------------------- extensions
@@ -246,8 +262,64 @@ with tabs[6]:
     st.download_button("Télécharger la sélection (CSV)", f.drop(columns=["ANNEE", "Famille"]).to_csv(index=False)
                        .encode("utf-8-sig"), "sitadel_78_selection.csv", "text/csv")
 
-# ---------------------------------------------------------------- méthode
+# ---------------------------------------------------------------- contrôle du modèle
 with tabs[7]:
+    st.subheader("Réponses du LLM et contrôle")
+    st.info("Une proposition du modèle devient un classement après validation manuelle avec une source publique. "
+            "Une citation correctement recopiée ne suffit pas à prouver le classement.")
+    if REVUE.exists():
+        revue = pd.read_csv(REVUE, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+        if "sources_web" not in revue:
+            revue["sources_web"] = "[]"
+        revue = revue[revue["SIREN_DEM"].isin(f["SIREN_DEM"])]
+        latest = revue.drop_duplicates("SIREN_DEM", keep="last")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Demandeurs analysés", len(latest))
+        c2.metric("Propositions à vérifier", int(latest["statut_controle"].eq("a_verifier").sum()))
+        c3.metric("Validations manuelles", int(latest["statut_controle"].eq("validee").sum()))
+        historique = st.checkbox("Afficher aussi les essais précédents", value=False)
+        affichage = revue.copy() if historique else latest.copy()
+        affichage["État"] = affichage["statut_controle"].map(STATUTS_LLM).fillna(affichage["statut_controle"])
+        etats_revue = sorted(affichage["État"].unique())
+        selection = st.multiselect("État de la revue", etats_revue, default=etats_revue)
+        affichage = affichage[affichage["État"].isin(selection)]
+        st.dataframe(affichage[["SIREN_DEM", "DENOM", "famille_proposee", "État", "justification", "preuves",
+                                "sources_web", "motif_controle", "modele", "version_prompt", "duree_s", "SIREN_URL",
+                                "verdict_manuel", "famille_attendue", "source_validation", "commentaire_manuel"]],
+                     hide_index=True, use_container_width=True,
+                     column_config={"SIREN_URL": LINKS["SIREN_URL"],
+                                    "source_validation": LINKS["SOURCE_VALIDATION_LLM"]})
+        st.download_button("Télécharger la revue affichée", affichage.drop(columns="État").to_csv(index=False)
+                           .encode("utf-8-sig"), "revue_llm_selection.csv", "text/csv")
+        st.caption("Les verdicts se renseignent dans data/processed/revue_llm.csv : "
+                   "verdict_manuel = valide ou rejete ; une validation exige aussi source_validation.")
+        with st.expander("Sources d'activité fournies au modèle", expanded=True):
+            sources = []
+            for _, row in affichage.iterrows():
+                try:
+                    documents = json.loads(row["sources_web"] or "[]")
+                except json.JSONDecodeError:
+                    documents = []
+                for document in documents if isinstance(documents, list) else []:
+                    if isinstance(document, dict):
+                        sources.append({"SIREN_DEM": row["SIREN_DEM"], "extrait": document.get("extrait"),
+                                        "url": document.get("url"), "url_identite": document.get("url_identite")})
+            if sources:
+                st.dataframe(pd.DataFrame(sources).drop_duplicates(), hide_index=True, use_container_width=True,
+                             column_config={"url": st.column_config.LinkColumn("Activité", display_text="source"),
+                                            "url_identite": st.column_config.LinkColumn("Identité / SIREN", display_text="vérification")})
+            else:
+                st.write("Aucune source web n'a été fournie dans ces essais.")
+        if REVUE_WEB.exists():
+            with st.expander("Recherche web : pages consultées et résultat"):
+                recherches = pd.read_csv(REVUE_WEB, dtype=str, keep_default_na=False, encoding="utf-8-sig")
+                recherches = recherches[recherches["SIREN_DEM"].isin(f["SIREN_DEM"])]
+                st.dataframe(recherches.drop(columns="sources"), hide_index=True, use_container_width=True)
+    else:
+        st.write("Aucune revue disponible. Préparez les classements ou lancez un premier essai du modèle.")
+
+# ---------------------------------------------------------------- méthode
+with tabs[8]:
     st.markdown("""
 **Périmètre.** Permis de construire (PC) des fichiers Sitadel *logements* et *locaux*, Yvelines, déposés par une
 personne morale (SIREN ou catégorie juridique renseigné). Un permis mixte apparaît une fois (lignes fusionnées).
@@ -255,8 +327,12 @@ personne morale (SIREN ou catégorie juridique renseigné). Un permis mixte appa
 **Classement du demandeur.** Règles explicables, dans l'ordre : statut HLM / convention collective HLM-OPH →
 médico-social (statut public de santé, entité FINESS + activité 86-88, APE 86-88) → public (CJ 4xxx / 7xxx) →
 association / ESS → promoteur (SCCV, APE promotion) → SCI / foncière → entreprise. Chaque ligne porte la règle,
-le signal et sa confiance. Les cas sans signal suffisant restent **non déterminés** ; un LLM local peut les
-arbitrer (confiance « basse », marqué `llm`).
+le signal et sa confiance. Les cas sans signal suffisant restent **non déterminés**. Une recherche web peut
+compléter leur dossier : pages d'activité, identité reliée au SIREN, extraits et liens publics conservés.
+Le LLM propose une famille en citant les champs ou les extraits utilisés. Le contrôle rejette les preuves
+inventées, les sources non vérifiées ou les seuls indices génériques.
+Les propositions restent séparées du classement jusqu'à validation manuelle avec une source publique
+(marqué `llm_valide`, confiance « basse »). L'onglet **Contrôle du LLM** présente les réponses et leur historique.
 
 **Limites.**
 - Sitadel ne publie pas l'identité des personnes morales absentes de Sirène ni de celles assimilées à des

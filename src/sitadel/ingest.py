@@ -1,4 +1,4 @@
-"""Étape 1 — Téléchargement de l'extraction Sitadel (Yvelines, 78) et filtrage personnes morales.
+"""Téléchargement de l'extraction Sitadel (Yvelines, 78) et filtrage personnes morales.
 
 Source : SDES, « Liste des permis de construire et autres autorisations d'urbanisme »
   https://www.data.gouv.fr/datasets/liste-des-permis-de-construire-et-autres-autorisations-durbanisme
@@ -8,14 +8,12 @@ Le filtre départemental est appliqué côté serveur (API DiDo, DEP_CODE=eq:78)
 que ~20k lignes au lieu de ~2M. Le filtre « personne morale » est fait localement pour pouvoir
 compter et documenter ce qu'on écarte.
 
-Usage : python src/step1_download.py [--millesime 2026-10] [--force]
+Usage : sitadel ingest [--millesime 2026-10] [--force]
 """
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,10 +21,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-ROOT = Path(__file__).resolve().parents[1]
-RAW = ROOT / "data" / "raw"
-PROC = ROOT / "data" / "processed"
-DOCS = ROOT / "docs" / "sources"
+from .config import DOCS_SOURCES as DOCS, MANIFEST, PERMIS_PM, PROCESSED as PROC, RAW, ROOT, SIREN_URL
 
 API = "https://data.statistiques.developpement-durable.gouv.fr/dido/api"
 DEP = "78"
@@ -95,12 +90,8 @@ def load(path: Path, kind: str) -> pd.DataFrame:
     return df
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--millesime", help="ex. 2026-10 (défaut : le plus récent)")
-    ap.add_argument("--force", action="store_true")
-    args = ap.parse_args()
-
+def run(millesime: str | None = None, force: bool = False) -> dict:
+    """Télécharge (ou réutilise) les fichiers, filtre les PC de personnes morales ; renvoie les statistiques."""
     for d in (RAW, PROC, DOCS):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -108,12 +99,12 @@ def main() -> int:
                 "departement": DEP, "fichiers": {}, "documentation": {}}
 
     for name, rid in DATAFILES.items():
-        mil = args.millesime or latest_millesime(rid)
-        manifest["fichiers"][name] = download_csv(name, rid, mil, args.force)
+        mil = millesime or latest_millesime(rid)
+        manifest["fichiers"][name] = download_csv(name, rid, mil, force)
 
     for fname, fid in DOC_FILES.items():
         out = DOCS / fname
-        if args.force or not out.exists():
+        if force or not out.exists():
             out.write_bytes(get(f"{API}/files/{fid}").content)
         manifest["documentation"][fname] = f"{API}/files/{fid}"
 
@@ -143,21 +134,15 @@ def main() -> int:
     # Lien source par ligne : page catalogue du fichier + identifiant du permis
     pm["SOURCE_URL"] = pm["SOURCE_FICHIER"].map(
         {k: m["page_catalogue"] for k, m in manifest["fichiers"].items()})
-    pm["SIREN_URL"] = "https://annuaire-entreprises.data.gouv.fr/entreprise/" + pm["SIREN_DEM"].fillna("")
+    pm["SIREN_URL"] = SIREN_URL + pm["SIREN_DEM"].fillna("")
     pm.loc[pm["SIREN_DEM"].isna(), "SIREN_URL"] = pd.NA
 
-    out = PROC / "pc_78_personnes_morales.csv"
+    out = PERMIS_PM
     pm.to_csv(out, index=False, encoding="utf-8")
     stats["sortie"] = {"fichier": out.relative_to(ROOT).as_posix(), "lignes": len(pm),
                        "permis_distincts": int(pm["NUM_DAU"].nunique()),
                        "siren_distincts": int(pm["SIREN_DEM"].nunique())}
     manifest["stats"] = stats
 
-    (ROOT / "data" / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(stats, ensure_ascii=False, indent=2))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return stats
